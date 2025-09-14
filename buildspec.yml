@@ -1,0 +1,41 @@
+version: 0.2
+
+# Define environment variables
+env:
+  variables:
+    DOCKER_IMAGE_NAME: "stefanholmberg/javademoimage"
+    DOCKER_TAG: "latest"
+    # The names of the parameters created in Step 1
+    USERNAME_PARAM_NAME: "DOCKER_USERNAME"
+    PASSWORD_PARAM_NAME: "DOCKER_PASSWORD"
+    REGION: "eu-north-1" # e.g., us-east-1
+
+phases:
+  pre_build:
+    commands:
+      - echo "Retrieving Docker Hub credentials from Parameter Store..."
+      # Use the AWS CLI to retrieve the secure string parameters
+      - DOCKER_HUB_USERNAME=$(aws ssm get-parameter --name "$USERNAME_PARAM_NAME" --with-decryption --query "Parameter.Value" --output text --region $REGION)
+      - DOCKER_HUB_PASSWORD=$(aws ssm get-parameter --name "$PASSWORD_PARAM_NAME" --with-decryption --query "Parameter.Value" --output text --region $REGION)
+      - echo "Logging in to Docker Hub..."
+      # Use the retrieved credentials to log in
+      - docker login -u "$DOCKER_HUB_USERNAME" -p "$DOCKER_HUB_PASSWORD"
+  build:
+    commands:
+      - echo "Building the Docker image..."
+      # Build the Docker image from the Dockerfile in the current directory
+      - docker build -t $DOCKER_IMAGE_NAME .
+  post_build:
+    commands:
+      - echo "Tagging and pushing the Docker image..."
+      # Tag the image with the latest tag
+      - docker tag $DOCKER_IMAGE_NAME:latest $DOCKER_IMAGE_NAME:$DOCKER_TAG
+      - docker push $DOCKER_IMAGE_NAME:$DOCKER_TAG
+      - echo "Push complete. Generating image manifest file..."
+      # Create an artifact file for CodeDeploy
+      - printf '{"ImageUri":"%s"}' "$DOCKER_IMAGE_NAME:$DOCKER_TAG" > image.json
+artifacts:
+  files:
+    - image.json
+    - appspec.yml
+    - scripts/deploy.sh
